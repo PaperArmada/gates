@@ -1,0 +1,67 @@
+#!/bin/bash
+# Engineering gates pre-push hook
+# Blocks pushes if tests fail or coverage is below threshold.
+#
+# This is a thin wrapper - install in product repos at .git/hooks/pre-push
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+ENGINEERING_GATES="$REPO_ROOT/../engineering-gates"
+CONFIG="$REPO_ROOT/engineering.yaml"
+
+if [ ! -d "$ENGINEERING_GATES" ]; then
+    echo "Warning: engineering-gates not found at $ENGINEERING_GATES"
+    echo "Engineering checks skipped."
+    exit 0
+fi
+
+# Get coverage threshold from config
+COVERAGE_THRESHOLD=0
+if [ -f "$CONFIG" ]; then
+    THRESHOLD=$(grep "^coverage_threshold:" "$CONFIG" 2>/dev/null | sed 's/coverage_threshold: *//' | tr -d '"')
+    [ -n "$THRESHOLD" ] && COVERAGE_THRESHOLD=$THRESHOLD
+fi
+
+echo "Running pre-push checks..."
+
+# Run tests
+OUTPUT=$("$ENGINEERING_GATES/scripts/check-tests.sh" "$REPO_ROOT" 2>&1)
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -eq 1 ]; then
+    echo ""
+    echo "ENGINEERING BLOCK: Tests failed"
+    echo ""
+    echo "Fix failing tests before pushing."
+    echo ""
+    echo "Run '../engineering-gates/scripts/check-tests.sh .' for details."
+    exit 1
+fi
+
+if [ $EXIT_CODE -eq 2 ]; then
+    echo "Tests skipped (not configured)."
+    exit 0
+fi
+
+# Check coverage threshold
+if [ "$COVERAGE_THRESHOLD" -gt 0 ]; then
+    COVERAGE=$(echo "$OUTPUT" | grep "^COVERAGE:" | sed 's/COVERAGE: *//' | tr -d '%')
+
+    if [ -n "$COVERAGE" ]; then
+        # Remove decimal for comparison
+        COVERAGE_INT=${COVERAGE%.*}
+
+        if [ "$COVERAGE_INT" -lt "$COVERAGE_THRESHOLD" ]; then
+            echo ""
+            echo "ENGINEERING BLOCK: Coverage below threshold"
+            echo ""
+            echo "Coverage: ${COVERAGE}%"
+            echo "Required: ${COVERAGE_THRESHOLD}%"
+            echo ""
+            echo "Add more tests before pushing."
+            exit 1
+        fi
+    fi
+fi
+
+echo "Pre-push checks passed."
+exit 0

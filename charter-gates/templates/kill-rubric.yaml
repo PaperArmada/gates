@@ -1,0 +1,62 @@
+# Kill Decision Rubric
+# Evaluated at each review checkpoint. No debate if conditions are met.
+# Status: pass | fail | warning | not_evaluated
+
+last_evaluated: ""                # YYYY-MM-DD
+next_review: ""                   # YYYY-MM-DD
+
+sections:
+  usage_reality:
+    # If either fails -> High Risk
+    repeat_usage:
+      check: "Used more than once by at least X% of initial users"
+      threshold: ""               # Fill in your X%
+      status: "not_evaluated"
+      evidence: ""
+    unprompted_usage:
+      check: "Usage occurs without prompting or reminders"
+      status: "not_evaluated"
+      evidence: ""
+
+  replacement_test:
+    # If both fail -> Kill
+    workaround_replaced:
+      check: "Users stopped or reduced an existing workaround"
+      status: "not_evaluated"
+      evidence: ""
+    absence_noticed:
+      check: "Users express annoyance when tool is unavailable"
+      status: "not_evaluated"
+      evidence: ""
+
+  cognitive_load:
+    # If net load increases -> Kill
+    reduces_thinking:
+      check: "Tool reduces thinking or coordination steps"
+      status: "not_evaluated"
+      evidence: ""
+    no_config_burden:
+      check: "Tool does not introduce new configuration burden"
+      status: "not_evaluated"
+      evidence: ""
+
+  narrative_test:
+    # If drifts -> Warning
+    one_sentence:
+      check: "Users can explain the product in one sentence"
+      status: "not_evaluated"
+      evidence: ""
+    matches_jtbd:
+      check: "Explanation matches intended JTBD"
+      status: "not_evaluated"
+      evidence: ""
+
+  opportunity_cost:
+    # If fails -> Kill or Freeze
+    more_informative:
+      check: "Continuing this experiment is more informative than starting a new one"
+      status: "not_evaluated"
+      evidence: ""
+
+outcome: "not_evaluated"          # proceed | freeze | kill | not_evaluated
+outcome_rationale: ""

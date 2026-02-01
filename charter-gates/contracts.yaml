@@ -1,0 +1,142 @@
+# Governance Contracts
+# These interfaces are stable. Breaking changes require migration path.
+# Version bumps: minor = additive, major = breaking
+
+version: 1.0.0
+
+preflight:
+  description: "Machine-readable gate check before any work session"
+  script: scripts/preflight.sh
+  interface_version: 1
+
+  inputs:
+    path:
+      description: "Path to product repo"
+      default: "current working directory"
+
+  outputs:
+    STATUS:
+      type: enum
+      values: [CLEAR, BLOCKED, WARNING]
+      required: true
+    OUTCOME:
+      type: enum
+      values: [proceed, freeze, kill, unknown]
+      required: true
+    REVIEW_STATUS:
+      type: enum
+      values: [current, overdue, unknown]
+      required: true
+    ASSUMPTIONS:
+      type: string
+      format: "A1=status,A2=status,A3=status"
+      required: true
+    BLOCK_REASON:
+      type: string
+      required: false
+      condition: "present when STATUS=BLOCKED"
+    WARNING:
+      type: string
+      required: false
+      condition: "present when STATUS=WARNING"
+
+  exit_codes:
+    0: "Clear to proceed"
+    1: "Blocked - hard stop required"
+    2: "Warning - proceed with caution"
+
+  stability:
+    - "Output fields may be added, never removed or renamed"
+    - "Exit codes are frozen"
+    - "New statuses require major version bump"
+
+commit_validation:
+  description: "Validates commit messages against governance rules"
+  script: scripts/validate-commit.sh
+  interface_version: 1
+
+  format:
+    pattern: "type(assumption): description"
+    assumption_pattern: "A[1-3]"
+
+  types:
+    require_assumption:
+      - feat      # New feature testing an assumption
+      - fix       # Bug fix related to an assumption
+      - test      # Test coverage for an assumption
+      - refactor  # Refactoring assumption-related code
+      - perf      # Performance improvement for assumption
+
+    no_assumption:
+      - chore     # Maintenance, dependencies
+      - docs      # Documentation
+      - ci        # CI/CD changes
+      - build     # Build system
+      - style     # Formatting, whitespace
+      - revert    # Reverting previous commits
+
+  exit_codes:
+    0: "Commit allowed"
+    1: "Commit rejected"
+
+  stability:
+    - "Format pattern is frozen"
+    - "Existing types cannot change category"
+    - "New types may be added to no_assumption only"
+
+charter_schema:
+  description: "Structure of product charter files"
+  template: templates/charter.yaml
+  interface_version: 1
+
+  fields:
+    required:
+      # These MUST be non-empty for preflight to pass
+      - identity.codename
+      - jtbd
+      - hypothesis
+      - assumptions.A1.statement
+
+    validated:
+      # These are checked if present, warned if missing
+      - kill_condition.date
+      - kill_condition.failure_state
+      - success_signal.behavior
+      - success_signal.threshold
+
+    optional:
+      # Everything else - not validated by governance
+      - identity.repo
+      - identity.owner
+      - identity.start_date
+      - identity.review_cadence
+      - assumptions.A1.test
+      - assumptions.A1.status
+      - assumptions.A2.*
+      - assumptions.A3.*
+      - non_goals
+      - distribution.*
+      - removal_test.*
+
+  stability:
+    - "Required fields are frozen"
+    - "New fields are always optional"
+    - "Moving optional to validated requires migration period"
+
+governance_bounds:
+  description: "Constraints on the governance repo itself"
+
+  max_files: 15
+  max_scripts: 5
+  max_templates: 5
+
+  allowed_directories:
+    - scripts/      # Enforcement scripts only
+    - templates/    # Reference templates only
+    - hooks/        # Thin wrappers only (deprecated, migrating to scripts/)
+
+  forbidden_content:
+    - "Product-specific code"
+    - "Shared libraries or utilities"
+    - "Analytics or reporting"
+    - "Anything not enforcing a specific gate"

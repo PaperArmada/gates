@@ -1,0 +1,62 @@
+#!/bin/bash
+# Engineering gates pre-commit hook
+# Blocks commits if lint, types, or format checks fail.
+#
+# This is a thin wrapper - install in product repos at .git/hooks/pre-commit
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+ENGINEERING_GATES="$REPO_ROOT/../engineering-gates"
+
+if [ ! -d "$ENGINEERING_GATES" ]; then
+    echo "Warning: engineering-gates not found at $ENGINEERING_GATES"
+    echo "Engineering checks skipped."
+    exit 0
+fi
+
+# Run individual checks (not full preflight - skip tests for commits)
+FAILURES=""
+
+echo "Running pre-commit checks..."
+
+# Lint
+"$ENGINEERING_GATES/scripts/check-lint.sh" "$REPO_ROOT" > /dev/null 2>&1
+case $? in
+    1) FAILURES="${FAILURES}lint " ;;
+esac
+
+# Types
+"$ENGINEERING_GATES/scripts/check-types.sh" "$REPO_ROOT" > /dev/null 2>&1
+case $? in
+    1) FAILURES="${FAILURES}types " ;;
+esac
+
+# Format
+"$ENGINEERING_GATES/scripts/check-format.sh" "$REPO_ROOT" > /dev/null 2>&1
+case $? in
+    1) FAILURES="${FAILURES}format " ;;
+esac
+
+if [ -n "$FAILURES" ]; then
+    echo ""
+    echo "ENGINEERING BLOCK: Pre-commit checks failed"
+    echo ""
+    echo "Failed checks: $FAILURES"
+    echo ""
+    echo "Fix these issues before committing:"
+
+    if [[ "$FAILURES" == *"lint"* ]]; then
+        echo "  - Lint: run your linter with --fix"
+    fi
+    if [[ "$FAILURES" == *"types"* ]]; then
+        echo "  - Types: fix type errors"
+    fi
+    if [[ "$FAILURES" == *"format"* ]]; then
+        echo "  - Format: run your formatter"
+    fi
+    echo ""
+    echo "Run '../engineering-gates/scripts/preflight.sh .' for details."
+    exit 1
+fi
+
+echo "Pre-commit checks passed."
+exit 0

@@ -1,0 +1,150 @@
+# Engineering Gates Contracts
+# These interfaces are stable. Breaking changes require migration path.
+
+version: 1.0.0
+
+preflight:
+  description: "Aggregated code quality check"
+  script: scripts/preflight.sh
+  interface_version: 1
+
+  inputs:
+    path:
+      description: "Path to product repo"
+      default: "current working directory"
+
+  outputs:
+    STATUS:
+      type: enum
+      values: [PASS, FAIL]
+      required: true
+    LINT:
+      type: enum
+      values: [pass, fail, skip]
+      required: true
+    TYPES:
+      type: enum
+      values: [pass, fail, skip]
+      required: true
+    TESTS:
+      type: enum
+      values: [pass, fail, skip]
+      required: true
+    FORMAT:
+      type: enum
+      values: [pass, fail, skip]
+      required: true
+    COVERAGE:
+      type: string
+      format: "NN%"
+      required: false
+    FAILURES:
+      type: string
+      format: "comma-separated list of failed checks"
+      required: false
+      condition: "present when STATUS=FAIL"
+
+  exit_codes:
+    0: "All checks pass"
+    1: "One or more checks failed"
+
+  stability:
+    - "Output fields may be added, never removed"
+    - "Exit codes are frozen"
+
+check_scripts:
+  description: "Individual check wrappers"
+  scripts:
+    - scripts/check-lint.sh
+    - scripts/check-types.sh
+    - scripts/check-tests.sh
+    - scripts/check-format.sh
+  interface_version: 1
+
+  inputs:
+    path:
+      description: "Path to product repo"
+      default: "current working directory"
+
+  outputs:
+    STATUS:
+      type: enum
+      values: [PASS, FAIL, SKIP]
+      required: true
+    TOOL:
+      type: string
+      description: "Name of tool used (e.g., eslint, tsc, pytest)"
+      required: true
+    MESSAGE:
+      type: string
+      description: "Human-readable summary"
+      required: false
+    DETAILS:
+      type: string
+      description: "Tool output (may be truncated)"
+      required: false
+
+  exit_codes:
+    0: "Check passed"
+    1: "Check failed"
+    2: "Check skipped (not applicable to this stack)"
+
+  stability:
+    - "Output format is frozen"
+    - "New tools may be added for stack detection"
+
+engineering_config:
+  description: "Product-level engineering configuration"
+  file: engineering.yaml
+  location: "product repo root"
+
+  schema:
+    stack:
+      type: enum
+      values: [node-typescript, node-javascript, python, go, rust, unknown]
+      required: false
+      description: "Explicit stack override. Auto-detected if not specified."
+
+    checks:
+      type: object
+      properties:
+        lint:
+          type: boolean
+          default: true
+        types:
+          type: boolean
+          default: true
+        tests:
+          type: boolean
+          default: true
+        format:
+          type: boolean
+          default: true
+
+    coverage_threshold:
+      type: integer
+      default: 0
+      description: "Minimum coverage percentage. 0 = no threshold."
+
+    lint_config:
+      type: string
+      description: "Path to custom lint config (overrides baseline)"
+
+    test_command:
+      type: string
+      description: "Custom test command (overrides auto-detection)"
+
+  stability:
+    - "New fields are always optional with sensible defaults"
+    - "Existing fields cannot change type or default"
+
+hooks:
+  pre_commit:
+    description: "Runs before each commit"
+    checks: [lint, types, format]
+    behavior: "Block commit if any check fails"
+
+  pre_push:
+    description: "Runs before push to remote"
+    checks: [tests]
+    behavior: "Block push if tests fail or coverage below threshold"

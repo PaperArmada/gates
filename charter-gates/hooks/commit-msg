@@ -1,0 +1,20 @@
+#!/bin/bash
+# Thin wrapper - delegates to charter-gates/scripts/validate-commit.sh
+# This file is installed in product repos at .git/hooks/commit-msg
+#
+# To add product-specific pre/post logic, wrap calls to the script:
+#   # Pre-validation logic here
+#   CHARTER_GATES="$(git rev-parse --show-toplevel)/../charter-gates"
+#   "$CHARTER_GATES/scripts/validate-commit.sh" "$1" || exit 1
+#   # Post-validation logic here
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+CHARTER_GATES="$REPO_ROOT/../charter-gates"
+
+if [ ! -d "$CHARTER_GATES" ]; then
+    echo "Warning: charter-gates not found at $CHARTER_GATES"
+    echo "Commit validation skipped."
+    exit 0
+fi
+
+exec "$CHARTER_GATES/scripts/validate-commit.sh" "$1" "$REPO_ROOT/charter/charter.yaml"

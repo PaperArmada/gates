@@ -1,0 +1,56 @@
+# Experiment Charter
+# Fill this out BEFORE writing any product code.
+# This file is machine-read by agents and git hooks.
+
+identity:
+  codename: ""                    # Short product name
+  repo: ""                        # Repo path or name
+  owner: ""                       # Who owns this experiment
+  start_date: ""                  # YYYY-MM-DD
+  review_cadence: "biweekly"      # weekly | biweekly
+
+jtbd: ""
+# One sentence. User language. No solution framing.
+# Example: "I need to know if my contractor actually did the work before I pay them."
+
+hypothesis: ""
+# If we provide [specific capability], then [specific user cohort]
+# will [observable behavior] because [reason].
+
+success_signal:
+  behavior: ""                    # What must happen
+  threshold: ""                   # How often / how many
+  window: ""                      # Timeframe (e.g., "first 2 weeks")
+
+kill_condition:
+  date: ""                        # YYYY-MM-DD or "after N users"
+  failure_state: ""               # Explicit condition that means death
+# Example: "If <10% of users complete a second session by 2024-03-15"
+
+assumptions:
+  # Max 3. Each assumption must be testable.
+  # All feature work must reference one of these by key (A1, A2, A3).
+  A1:
+    statement: ""
+    test: ""                      # How we'll know if true/false
+    status: "untested"            # untested | validated | invalidated
+  A2:
+    statement: ""
+    test: ""
+    status: "untested"
+  A3:
+    statement: ""
+    test: ""
+    status: "untested"
+
+non_goals:
+  # Explicit scope boundaries. Agents should refuse work outside these.
+  - ""
+
+distribution:
+  platform: ""                    # Where users will find this
+  access_mode: "private"          # private | invite | silent_deploy
+
+removal_test:
+  what_to_remove: ""              # What gets disabled temporarily
+  detection_method: ""            # How we'll know users noticed

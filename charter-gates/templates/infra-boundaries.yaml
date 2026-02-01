@@ -1,0 +1,54 @@
+# Shared Infrastructure Boundaries
+# Reference this when considering cross-repo abstractions.
+
+allowed_freely:
+  # Pure leverage - share without justification
+  - authentication_primitives
+  - logging_observability
+  - ci_cd_pipelines
+  - prompt_libraries
+  - llm_wrappers
+  - feature_flagging
+  - notification_adapters
+
+requires_justification:
+  # Must be duplicated once before abstraction
+  # Document the duplication pain before extracting
+  - summarization_pipelines
+  - intent_classification
+  - rate_limiting
+  - quota_logic
+
+forbidden_until_traction:
+  # Creates premature convergence and signal bleed
+  # Only share after ONE product has clear traction
+  - ui_components
+  - onboarding_flows
+  - copy_language
+  - pricing_logic
+  - analytics_dashboards
+
+rules:
+  interface_contract:
+    description: "All shared infra must be consumed via explicit versioned interfaces"
+    requirement: "No cross-repo imports without adapters"
+    breaking_changes: "Require per-product opt-in"
+
+  ownership:
+    description: "Every shared component must have clear ownership"
+    requirements:
+      - single_maintainer
+      - clear_deprecation_path
+      - no_implicit_roadmap_coupling
+
+  graduation:
+    to_platform_infra: "Only after 2+ products independently validate fit"
+    to_product_feature: "Only if one product dominates portfolio focus"
+
+# When evaluating a shared infra proposal:
+evaluation_checklist:
+  - "Is this in the 'allowed_freely' list?"
+  - "If 'requires_justification', has it been duplicated and caused pain?"
+  - "Is there a single maintainer identified?"
+  - "Is there a versioned interface?"
+  - "What is the deprecation path?"

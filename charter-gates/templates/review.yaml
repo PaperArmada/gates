@@ -1,0 +1,41 @@
+# Review Checkpoint Record
+# Create one of these at each review cadence date.
+# Filename: YYYY-MM-DD.yaml
+
+date: ""                          # YYYY-MM-DD
+reviewer: ""
+
+# Charter reference check
+charter_still_accurate: true
+charter_changes: []               # List any amendments made
+
+# Assumption status updates
+assumptions_update:
+  A1:
+    prior_status: ""
+    new_status: ""                # untested | validated | invalidated
+    evidence: ""
+  A2:
+    prior_status: ""
+    new_status: ""
+    evidence: ""
+  A3:
+    prior_status: ""
+    new_status: ""
+    evidence: ""
+
+# Kill rubric evaluation (copy current state)
+rubric_outcome: ""                # proceed | freeze | kill
+
+# Observations
+invalidated_assumptions: []
+unexpected_behaviors: []
+features_frozen_or_removed: []
+
+# Decision
+decision: ""                      # continue | pivot | freeze | kill
+rationale: ""
+
+# Next actions
+next_review_date: ""
+blockers: []
