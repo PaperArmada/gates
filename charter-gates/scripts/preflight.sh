@@ -48,7 +48,7 @@ assumption_field() {
         found && /^  [A-Z]/ { found=0 }
         found && $0 ~ f {
             sub(/.*: */, "");
-            gsub(/["\047#].*/, "");
+            gsub(/^["'"'"']|["'"'"']$/, "");
             gsub(/^ *| *$/, "");
             print;
             exit
