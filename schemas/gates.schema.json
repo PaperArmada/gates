@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/PaperArmada/gates/schemas/gates.schema.json",
+  "title": "Gates Configuration",
+  "description": "Configuration schema for gates.yaml - enforcement for agent-driven development",
+  "type": "object",
+  "required": ["version"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Configuration schema version. Currently: 1"
+    },
+    "charter": {
+      "type": "object",
+      "description": "Charter gate behavior configuration",
+      "additionalProperties": false,
+      "properties": {
+        "enforce_reviews": {
+          "type": "boolean",
+          "default": true,
+          "description": "Block work if review date is past due. If false, warns instead."
+        }
+      }
+    },
+    "engineering": {
+      "type": "object",
+      "description": "Engineering gate behavior configuration",
+      "additionalProperties": false,
+      "properties": {
+        "stack": {
+          "type": "string",
+          "enum": ["auto", "node-typescript", "node-javascript", "python", "go", "rust", "unknown"],
+          "default": "auto",
+          "description": "Stack detection override. Auto-detected from project files if not specified."
+        },
+        "checks": {
+          "type": "object",
+          "description": "Enable/disable individual checks",
+          "additionalProperties": false,
+          "properties": {
+            "lint": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable lint checking"
+            },
+            "types": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable type checking"
+            },
+            "tests": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable test running"
+            },
+            "format": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable format checking"
+            }
+          }
+        },
+        "coverage_threshold": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 0,
+          "description": "Minimum test coverage percentage. 0 = no enforcement."
+        },
+        "lint_config": {
+          "type": "string",
+          "description": "Path to custom lint config file"
+        },
+        "test_command": {
+          "type": "string",
+          "description": "Custom test command (overrides auto-detection)"
+        },
+        "custom_checks": {
+          "type": "array",
+          "description": "Project-specific checks to run alongside built-in gates",
+          "items": {
+            "type": "object",
+            "required": ["name", "command", "phase"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Identifier for the check (used in output)"
+              },
+              "command": {
+                "type": "string",
+                "description": "Shell command to execute"
+              },
+              "phase": {
+                "type": "string",
+                "enum": ["pre-commit", "pre-push"],
+                "description": "When to run: pre-commit (fast) or pre-push (thorough)"
+              },
+              "blocking": {
+                "type": "boolean",
+                "default": true,
+                "description": "If true, failure blocks the operation. If false, warns only."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

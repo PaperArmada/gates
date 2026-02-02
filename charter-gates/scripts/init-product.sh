@@ -54,6 +54,8 @@ fi
 
 # Create unified gates.yaml configuration
 cat > "$PRODUCT_DIR/gates.yaml" << 'EOF'
+# yaml-language-server: $schema=https://raw.githubusercontent.com/PaperArmada/gates/main/schemas/gates.schema.json
+#
 # Unified Gate Configuration
 # Version 1 schema - see gates/contracts.yaml for full specification
 

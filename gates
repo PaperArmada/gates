@@ -1,0 +1,450 @@
+#!/bin/bash
+# Gates CLI - unified interface for charter and engineering gates
+#
+# Usage: gates <command> [options]
+#
+# Commands:
+#   config    Manage gate configuration
+#   preflight Run preflight checks
+#   help      Show this help
+
+set -e
+
+GATES_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+show_help() {
+    cat << 'EOF'
+Gates CLI - enforcement for agent-driven development
+
+Usage: gates <command> [options]
+
+Commands:
+  config      Manage gate configuration
+    --list              Show all options with current values
+    --explain <path>    Explain a specific option (e.g., engineering.checks.lint)
+    --validate          Check configuration for errors
+    --init              Generate annotated template
+
+  preflight   Run preflight checks
+    --charter           Run charter gates preflight
+    --engineering       Run engineering gates preflight
+    --all               Run all preflights (default)
+
+  help        Show this help
+
+Examples:
+  gates config --list
+  gates config --explain engineering.coverage_threshold
+  gates config --init > gates.yaml
+  gates preflight --all
+
+For more information, see: contracts.yaml
+EOF
+}
+
+cmd_config() {
+    local action=""
+    local path=""
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --list) action="list" ;;
+            --explain) action="explain"; path="$2"; shift ;;
+            --validate) action="validate" ;;
+            --init) action="init" ;;
+            *) echo "Unknown option: $1"; exit 1 ;;
+        esac
+        shift
+    done
+
+    [ -z "$action" ] && action="list"
+
+    case $action in
+        list)
+            config_list
+            ;;
+        explain)
+            [ -z "$path" ] && { echo "Error: --explain requires a path"; exit 1; }
+            config_explain "$path"
+            ;;
+        validate)
+            config_validate
+            ;;
+        init)
+            config_init
+            ;;
+    esac
+}
+
+config_list() {
+    # Find config file
+    local config=""
+    for f in ".gates.local" "gates.yaml" "engineering.yaml"; do
+        [ -f "$f" ] && config="$f" && break
+    done
+
+    echo "Gates Configuration"
+    echo "==================="
+    echo ""
+
+    if [ -z "$config" ]; then
+        echo "No configuration file found. Using defaults."
+        echo ""
+    else
+        echo "Config file: $config"
+        echo ""
+    fi
+
+    echo "charter:"
+    local enforce_reviews=$(get_config "charter.enforce_reviews" "true" "$config")
+    echo "  enforce_reviews: $enforce_reviews (default: true)"
+    echo ""
+
+    echo "engineering:"
+    local stack=$(get_config "engineering.stack" "auto" "$config")
+    [ "$stack" = "auto" ] && stack="auto ($(detect_stack))"
+    echo "  stack: $stack"
+    echo ""
+
+    echo "  checks:"
+    echo "    lint: $(get_config "engineering.checks.lint" "true" "$config") (default: true)"
+    echo "    types: $(get_config "engineering.checks.types" "true" "$config") (default: true)"
+    echo "    tests: $(get_config "engineering.checks.tests" "true" "$config") (default: true)"
+    echo "    format: $(get_config "engineering.checks.format" "true" "$config") (default: true)"
+    echo ""
+
+    echo "  coverage_threshold: $(get_config "engineering.coverage_threshold" "0" "$config") (default: 0)"
+
+    # Check for custom checks
+    if [ -n "$config" ] && grep -q "custom_checks:" "$config" 2>/dev/null; then
+        echo ""
+        echo "  custom_checks: (defined in config)"
+    fi
+}
+
+config_explain() {
+    local path=$1
+
+    case $path in
+        version)
+            cat << 'EOF'
+version
+  Type: integer
+  Required: yes
+
+  Configuration schema version. Currently: 1
+
+  This field is required and enables forward compatibility.
+  When gates sees a version it doesn't fully support, it will warn
+  but attempt to continue.
+
+  Example:
+    version: 1
+EOF
+            ;;
+        charter.enforce_reviews)
+            cat << 'EOF'
+charter.enforce_reviews
+  Type: boolean
+  Default: true
+
+  Whether to block work when review date is past due.
+
+  When true (default), preflight returns BLOCKED if the review date
+  in kill-rubric.yaml has passed.
+
+  When false, preflight returns WARNING instead, allowing work to
+  continue with a reminder.
+
+  Example:
+    charter:
+      enforce_reviews: false
+EOF
+            ;;
+        engineering.stack)
+            cat << 'EOF'
+engineering.stack
+  Type: enum
+  Values: auto, node-typescript, node-javascript, python, go, rust, unknown
+  Default: auto
+
+  Override automatic stack detection.
+
+  By default, gates detects your stack from project files:
+  - package.json + tsconfig.json → node-typescript
+  - package.json → node-javascript
+  - pyproject.toml/setup.py → python
+  - go.mod → go
+  - Cargo.toml → rust
+
+  Set explicitly to skip detection or handle unusual setups.
+
+  Example:
+    engineering:
+      stack: python
+EOF
+            ;;
+        engineering.checks.lint|engineering.checks.types|engineering.checks.tests|engineering.checks.format)
+            local check=${path##*.}
+            cat << EOF
+$path
+  Type: boolean
+  Default: true
+
+  Enable or disable the $check check.
+
+  When true (default), this check runs during preflight and hooks.
+  When false, the check is skipped.
+
+  Example:
+    engineering:
+      checks:
+        $check: false
+EOF
+            ;;
+        engineering.coverage_threshold)
+            cat << 'EOF'
+engineering.coverage_threshold
+  Type: integer (0-100)
+  Default: 0
+
+  Minimum test coverage percentage required to pass.
+
+  Set to 0 (default) to disable coverage enforcement.
+  Set to a positive number to require that coverage level.
+
+  Coverage is checked during pre-push hook.
+
+  Example:
+    engineering:
+      coverage_threshold: 80
+EOF
+            ;;
+        engineering.custom_checks)
+            cat << 'EOF'
+engineering.custom_checks
+  Type: array of objects
+  Default: (empty)
+
+  Define project-specific checks to run alongside built-in gates.
+
+  Each check has:
+  - name: Identifier shown in output
+  - command: Shell command to execute
+  - phase: When to run (pre-commit or pre-push)
+  - blocking: If true, failure blocks operation; if false, warns only
+
+  Custom checks must follow exit code contract:
+  - Exit 0: Pass
+  - Exit 1: Fail
+  - Exit 2: Skip
+
+  Example:
+    engineering:
+      custom_checks:
+        - name: security-audit
+          command: npm audit --audit-level=high
+          phase: pre-push
+          blocking: true
+
+        - name: bundle-size
+          command: ./scripts/check-bundle.sh
+          phase: pre-push
+          blocking: false
+EOF
+            ;;
+        *)
+            echo "Unknown option: $path"
+            echo ""
+            echo "Available options:"
+            echo "  version"
+            echo "  charter.enforce_reviews"
+            echo "  engineering.stack"
+            echo "  engineering.checks.lint"
+            echo "  engineering.checks.types"
+            echo "  engineering.checks.tests"
+            echo "  engineering.checks.format"
+            echo "  engineering.coverage_threshold"
+            echo "  engineering.custom_checks"
+            exit 1
+            ;;
+    esac
+}
+
+config_validate() {
+    local config=""
+    for f in "gates.yaml" "engineering.yaml"; do
+        [ -f "$f" ] && config="$f" && break
+    done
+
+    if [ -z "$config" ]; then
+        echo "No configuration file found."
+        echo "Run 'gates config --init > gates.yaml' to create one."
+        exit 0
+    fi
+
+    local errors=0
+    local warnings=0
+
+    echo "Validating $config..."
+    echo ""
+
+    # Check version field for gates.yaml
+    if [ "$config" = "gates.yaml" ]; then
+        if ! grep -q "^version:" "$config"; then
+            echo "ERROR: Missing required field: version"
+            errors=$((errors + 1))
+        else
+            local version=$(grep "^version:" "$config" | sed 's/version: *//')
+            if [ "$version" != "1" ]; then
+                echo "WARNING: Unknown version: $version (expected: 1)"
+                warnings=$((warnings + 1))
+            fi
+        fi
+    fi
+
+    # Check for unknown top-level keys
+    local valid_top="version charter engineering"
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^([a-z_]+): ]]; then
+            local key="${BASH_REMATCH[1]}"
+            if [[ ! " $valid_top " =~ " $key " ]]; then
+                echo "WARNING: Unknown top-level key: $key"
+                warnings=$((warnings + 1))
+            fi
+        fi
+    done < "$config"
+
+    echo ""
+    if [ $errors -gt 0 ]; then
+        echo "Validation failed: $errors error(s), $warnings warning(s)"
+        exit 1
+    elif [ $warnings -gt 0 ]; then
+        echo "Validation passed with $warnings warning(s)"
+        exit 0
+    else
+        echo "Validation passed"
+        exit 0
+    fi
+}
+
+config_init() {
+    cat "$GATES_ROOT/templates/gates.yaml"
+}
+
+cmd_preflight() {
+    local run_charter=false
+    local run_engineering=false
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --charter) run_charter=true ;;
+            --engineering) run_engineering=true ;;
+            --all) run_charter=true; run_engineering=true ;;
+            *) echo "Unknown option: $1"; exit 1 ;;
+        esac
+        shift
+    done
+
+    # Default to all
+    if [ "$run_charter" = "false" ] && [ "$run_engineering" = "false" ]; then
+        run_charter=true
+        run_engineering=true
+    fi
+
+    local exit_code=0
+
+    if [ "$run_charter" = "true" ]; then
+        echo "=== Charter Gates ==="
+        "$GATES_ROOT/charter-gates/scripts/preflight.sh" . || exit_code=$?
+        echo ""
+    fi
+
+    if [ "$run_engineering" = "true" ]; then
+        echo "=== Engineering Gates ==="
+        "$GATES_ROOT/engineering-gates/scripts/preflight.sh" . || exit_code=$?
+    fi
+
+    exit $exit_code
+}
+
+# Helper: get config value with default
+get_config() {
+    local path=$1
+    local default=$2
+    local config=$3
+
+    [ -z "$config" ] || [ ! -f "$config" ] && echo "$default" && return
+
+    # Simple extraction - works for basic cases
+    local value=""
+
+    # Handle nested paths like engineering.checks.lint
+    IFS='.' read -ra parts <<< "$path"
+
+    if [ ${#parts[@]} -eq 1 ]; then
+        # Top level
+        value=$(grep "^${parts[0]}:" "$config" 2>/dev/null | head -1 | sed "s/^${parts[0]}: *//" | tr -d '"' | tr -d "'")
+    elif [ ${#parts[@]} -eq 2 ]; then
+        # One level deep (e.g., charter.enforce_reviews)
+        value=$(awk -v s="${parts[0]}" -v k="${parts[1]}" '
+            $0 ~ "^"s":" { in_section=1; next }
+            in_section && /^[a-z]/ { in_section=0 }
+            in_section && $0 ~ "^  "k":" {
+                gsub(/.*: */, ""); gsub(/["'"'"']/, ""); gsub(/#.*/, ""); gsub(/^ *| *$/, ""); print; exit
+            }
+        ' "$config")
+    elif [ ${#parts[@]} -eq 3 ]; then
+        # Two levels deep (e.g., engineering.checks.lint)
+        value=$(awk -v s1="${parts[0]}" -v s2="${parts[1]}" -v k="${parts[2]}" '
+            $0 ~ "^"s1":" { in_s1=1; next }
+            in_s1 && /^[a-z]/ { in_s1=0 }
+            in_s1 && $0 ~ "^  "s2":" { in_s2=1; next }
+            in_s2 && /^  [a-z]/ && !/^    / { in_s2=0 }
+            in_s2 && $0 ~ "^    "k":" {
+                gsub(/.*: */, ""); gsub(/["'"'"']/, ""); gsub(/#.*/, ""); gsub(/^ *| *$/, ""); print; exit
+            }
+        ' "$config")
+    fi
+
+    [ -n "$value" ] && echo "$value" || echo "$default"
+}
+
+# Helper: detect stack
+detect_stack() {
+    if [ -f "package.json" ]; then
+        if [ -f "tsconfig.json" ]; then
+            echo "node-typescript"
+        else
+            echo "node-javascript"
+        fi
+    elif [ -f "pyproject.toml" ] || [ -f "setup.py" ] || [ -f "requirements.txt" ]; then
+        echo "python"
+    elif [ -f "go.mod" ]; then
+        echo "go"
+    elif [ -f "Cargo.toml" ]; then
+        echo "rust"
+    else
+        echo "unknown"
+    fi
+}
+
+# Main dispatch
+case ${1:-help} in
+    config)
+        shift
+        cmd_config "$@"
+        ;;
+    preflight)
+        shift
+        cmd_preflight "$@"
+        ;;
+    help|--help|-h)
+        show_help
+        ;;
+    *)
+        echo "Unknown command: $1"
+        echo "Run 'gates help' for usage."
+        exit 1
+        ;;
+esac
