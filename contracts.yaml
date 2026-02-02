@@ -74,6 +74,41 @@ gates_yaml:
     - "engineering.yaml (legacy) continues to work indefinitely"
     - "Charter content remains in charter/charter.yaml (unchanged)"
 
+gates_local:
+  description: "Local configuration overrides (not committed)"
+  file: ".gates.local"
+  location: "product repo root (gitignored)"
+
+  behavior:
+    - "Same schema as gates.yaml"
+    - "Values in .gates.local override gates.yaml on a per-key basis"
+    - "Deep merge: only specified keys are overridden, others inherit from gates.yaml"
+    - "Version field is optional in .gates.local"
+
+  resolution_order:
+    1: ".gates.local (if exists)"
+    2: "gates.yaml (if exists)"
+    3: "engineering.yaml (legacy, if exists)"
+    4: "built-in defaults"
+
+  use_cases:
+    - "Developer temporarily disabling checks during experimentation"
+    - "Local tooling differences (different test command)"
+    - "Avoiding 'git stash config' workflow"
+
+  example: |
+    # .gates.local - Developer's local overrides
+    # This file is gitignored and not shared with team
+
+    engineering:
+      checks:
+        types: false  # My IDE handles type checking
+      test_command: npm run test:fast
+
+  stability:
+    - "Same schema stability as gates.yaml"
+    - "Override behavior is frozen"
+
 version_migration:
   description: "How to handle version changes"
 

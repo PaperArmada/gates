@@ -21,12 +21,13 @@ REPO_PATH="${1:-.}"
 CHARTER="$REPO_PATH/charter/charter.yaml"
 RUBRIC="$REPO_PATH/charter/kill-rubric.yaml"
 GATES_CONFIG="$REPO_PATH/gates.yaml"
+LOCAL_CONFIG="$REPO_PATH/.gates.local"
 
-# Read config value from gates.yaml (charter section)
-gates_config() {
-    local key=$1
-    local default=$2
-    [ ! -f "$GATES_CONFIG" ] && echo "$default" && return
+# Read config value from a file's charter section
+read_charter_config() {
+    local file=$1
+    local key=$2
+    [ ! -f "$file" ] && return 1
 
     # Simple extraction for charter.* keys
     local section_found=0
@@ -40,9 +41,35 @@ gates_config() {
             result=$(echo "$line" | sed "s/.*${key}: *//" | tr -d '"' | tr -d "'" | sed 's/#.*//' | sed 's/ *$//')
             break
         fi
-    done < "$GATES_CONFIG"
+    done < "$file"
 
-    [ -n "$result" ] && echo "$result" || echo "$default"
+    [ -n "$result" ] && echo "$result" && return 0
+    return 1
+}
+
+# Read config with local override support
+# Priority: .gates.local > gates.yaml
+gates_config() {
+    local key=$1
+    local default=$2
+
+    # Check local override first
+    if [ -f "$LOCAL_CONFIG" ]; then
+        local local_val=$(read_charter_config "$LOCAL_CONFIG" "$key")
+        if [ -n "$local_val" ]; then
+            echo "$local_val"
+            return
+        fi
+    fi
+
+    # Fall back to main config
+    local main_val=$(read_charter_config "$GATES_CONFIG" "$key")
+    if [ -n "$main_val" ]; then
+        echo "$main_val"
+        return
+    fi
+
+    echo "$default"
 }
 
 # Configuration

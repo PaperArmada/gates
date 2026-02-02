@@ -20,7 +20,8 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_PATH="${1:-.}"
 
-# Config resolution: gates.yaml (unified) > engineering.yaml (legacy)
+# Config resolution: .gates.local > gates.yaml (unified) > engineering.yaml (legacy)
+LOCAL_CONFIG="$REPO_PATH/.gates.local"
 if [ -f "$REPO_PATH/gates.yaml" ]; then
     CONFIG="$REPO_PATH/gates.yaml"
     CONFIG_PREFIX="engineering."
@@ -136,13 +137,40 @@ check_config_version() {
     fi
 }
 
-# Backward-compatible wrappers
+# Config wrappers with local override support
+# Priority: .gates.local > gates.yaml/engineering.yaml
 config_value() {
-    yaml_get "${CONFIG_PREFIX}$1" "$2"
+    local key="${CONFIG_PREFIX}$1"
+    local default="$2"
+
+    # Check local override first
+    if [ -f "$LOCAL_CONFIG" ]; then
+        local local_val=$(yaml_get "$key" "" "$LOCAL_CONFIG")
+        if [ -n "$local_val" ]; then
+            echo "$local_val"
+            return
+        fi
+    fi
+
+    # Fall back to main config
+    yaml_get "$key" "$default"
 }
 
 config_bool() {
-    yaml_bool "${CONFIG_PREFIX}$1" "$2"
+    local key="${CONFIG_PREFIX}$1"
+    local default="$2"
+
+    # Check local override first
+    if [ -f "$LOCAL_CONFIG" ]; then
+        local local_val=$(yaml_get "$key" "" "$LOCAL_CONFIG")
+        if [ -n "$local_val" ]; then
+            [ "$local_val" = "true" ] && echo "true" || echo "false"
+            return
+        fi
+    fi
+
+    # Fall back to main config
+    yaml_bool "$key" "$default"
 }
 
 # Validate config version
