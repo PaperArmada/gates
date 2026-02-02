@@ -1,0 +1,90 @@
+# Unified Gates Contracts
+# This documents the stable interfaces for the gates.yaml configuration format
+# Breaking changes require migration path and major version bump
+
+config_version: 1
+
+gates_yaml:
+  description: "Unified configuration for all gate types"
+  location: "product repo root"
+
+  schema:
+    version:
+      type: integer
+      required: true
+      description: "Configuration schema version. Currently: 1"
+      stability: "Field is frozen. Value will increment on breaking changes."
+
+    charter:
+      type: object
+      description: "Charter gate behavior configuration"
+      properties:
+        enforce_reviews:
+          type: boolean
+          default: true
+          description: "Block work if review date is past due. If false, warns instead."
+
+    engineering:
+      type: object
+      description: "Engineering gate behavior configuration"
+      properties:
+        stack:
+          type: enum
+          values: [auto, node-typescript, node-javascript, python, go, rust, unknown]
+          default: "auto"
+          description: "Stack detection override. Auto-detected from project files if not specified."
+
+        checks:
+          type: object
+          properties:
+            lint:
+              type: boolean
+              default: true
+            types:
+              type: boolean
+              default: true
+            tests:
+              type: boolean
+              default: true
+            format:
+              type: boolean
+              default: true
+
+        coverage_threshold:
+          type: integer
+          default: 0
+          description: "Minimum test coverage percentage. 0 = no enforcement."
+
+        lint_config:
+          type: string
+          description: "Path to custom lint config file"
+
+        test_command:
+          type: string
+          description: "Custom test command (overrides auto-detection)"
+
+  stability:
+    - "Version field is required and frozen"
+    - "New fields are always optional with sensible defaults"
+    - "Existing field types and defaults cannot change without major version"
+    - "Removal of fields requires deprecation period"
+
+  backward_compatibility:
+    - "Scripts check for gates.yaml first, fall back to engineering.yaml"
+    - "engineering.yaml (legacy) continues to work indefinitely"
+    - "Charter content remains in charter/charter.yaml (unchanged)"
+
+version_migration:
+  description: "How to handle version changes"
+
+  current_version: 1
+
+  rules:
+    - "Missing version field: warn, assume version 1"
+    - "Version > supported: warn, attempt to run (forward compatible)"
+    - "Version < current: run normally (backward compatible)"
+
+  breaking_changes_require:
+    - "Major version bump"
+    - "Migration documentation"
+    - "Deprecation warnings in previous release"

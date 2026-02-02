@@ -52,23 +52,31 @@ if [ -d "$ENGINEERING_GATES" ]; then
     chmod +x "$PRODUCT_DIR/.git/hooks/pre-push"
 fi
 
-# Create engineering.yaml with defaults
-cat > "$PRODUCT_DIR/engineering.yaml" << 'EOF'
-# Engineering gates configuration
-# See ../engineering-gates/contracts.yaml for full schema
+# Create unified gates.yaml configuration
+cat > "$PRODUCT_DIR/gates.yaml" << 'EOF'
+# Unified Gate Configuration
+# Version 1 schema - see gates/contracts.yaml for full specification
 
-# Stack is auto-detected if not specified
-# stack: node-typescript
+version: 1
 
-# Enable/disable checks
-checks:
-  lint: true
-  types: true
-  tests: true
-  format: true
+# Charter gate configuration
+charter:
+  # Block work if review date is past due
+  enforce_reviews: true
 
-# Minimum coverage percentage (0 = no threshold)
-coverage_threshold: 0
+# Engineering gate configuration
+engineering:
+  # Stack auto-detected if not specified
+  # stack: node-typescript
+
+  checks:
+    lint: true
+    types: true
+    tests: true
+    format: true
+
+  # Minimum coverage percentage (0 = no threshold)
+  coverage_threshold: 0
 EOF
 
 # Create CLAUDE.md
@@ -125,6 +133,9 @@ __pycache__/
 .vscode/
 *.swp
 .DS_Store
+
+# Local gate configuration overrides
+.gates.local
 EOF
 
 # Create minimal README

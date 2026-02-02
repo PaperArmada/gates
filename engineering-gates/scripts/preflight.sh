@@ -19,7 +19,15 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_PATH="${1:-.}"
-CONFIG="$REPO_PATH/engineering.yaml"
+
+# Config resolution: gates.yaml (unified) > engineering.yaml (legacy)
+if [ -f "$REPO_PATH/gates.yaml" ]; then
+    CONFIG="$REPO_PATH/gates.yaml"
+    CONFIG_PREFIX="engineering."
+else
+    CONFIG="$REPO_PATH/engineering.yaml"
+    CONFIG_PREFIX=""
+fi
 
 # Detect stack
 detect_stack() {
@@ -40,24 +48,105 @@ detect_stack() {
     fi
 }
 
-# Read config value (simple YAML parsing)
-config_value() {
-    local key=$1
+# Read nested YAML value (handles dot-separated paths like "engineering.checks.lint")
+# Usage: yaml_get "path.to.key" "default" [file]
+yaml_get() {
+    local path=$1
     local default=$2
-    if [ -f "$CONFIG" ]; then
-        local val=$(grep "^${key}:" "$CONFIG" 2>/dev/null | head -1 | sed "s/^${key}: *//" | tr -d '"' | tr -d "'")
-        [ -n "$val" ] && echo "$val" || echo "$default"
-    else
-        echo "$default"
+    local file=${3:-$CONFIG}
+
+    [ ! -f "$file" ] && echo "$default" && return
+
+    # Convert dot path to components
+    IFS='.' read -ra parts <<< "$path"
+    local depth=${#parts[@]}
+
+    # Build awk pattern for nested extraction
+    local result=$(awk -v parts="${parts[*]}" -v depth="$depth" '
+    BEGIN {
+        split(parts, p, " ")
+        current_depth = 0
+        found_path = ""
+    }
+    {
+        # Calculate indentation (2 spaces per level)
+        match($0, /^[ ]*/)
+        indent = RLENGTH / 2
+
+        # Extract key and value
+        if (match($0, /^[ ]*([a-zA-Z0-9_-]+):[ ]*(.*)$/, m)) {
+            key = m[1]
+            val = m[2]
+
+            # Track current path based on indent
+            if (indent == 0) {
+                found_path = key
+                current_depth = 1
+            } else if (indent == current_depth) {
+                found_path = found_path "." key
+                current_depth = indent + 1
+            } else if (indent > current_depth) {
+                found_path = found_path "." key
+                current_depth = indent + 1
+            } else {
+                # Dedent - rebuild path
+                split(found_path, fp, ".")
+                found_path = ""
+                for (i = 1; i <= indent; i++) {
+                    found_path = (found_path == "" ? fp[i] : found_path "." fp[i])
+                }
+                found_path = found_path "." key
+                current_depth = indent + 1
+            }
+
+            # Check if this matches our target path
+            target = p[1]
+            for (i = 2; i <= depth; i++) target = target "." p[i]
+
+            if (found_path == target && val != "") {
+                gsub(/^[ ]*|[ ]*$/, "", val)
+                gsub(/^["'"'"']|["'"'"']$/, "", val)
+                gsub(/#.*$/, "", val)
+                gsub(/[ ]*$/, "", val)
+                print val
+                exit
+            }
+        }
+    }
+    ' "$file")
+
+    [ -n "$result" ] && echo "$result" || echo "$default"
+}
+
+# Helper for boolean values
+yaml_bool() {
+    local val=$(yaml_get "$1" "$2" "$3")
+    [ "$val" = "true" ] && echo "true" || echo "false"
+}
+
+# Version check for gates.yaml
+check_config_version() {
+    if [ "$CONFIG" = "$REPO_PATH/gates.yaml" ]; then
+        local version=$(yaml_get "version" "" "$CONFIG")
+        if [ -z "$version" ]; then
+            echo "WARNING: gates.yaml missing version field" >&2
+        elif [ "$version" != "1" ]; then
+            echo "WARNING: gates.yaml version $version may not be fully supported" >&2
+        fi
     fi
 }
 
-config_bool() {
-    local key=$1
-    local default=$2
-    local val=$(config_value "$key" "$default")
-    [ "$val" = "true" ] && echo "true" || echo "false"
+# Backward-compatible wrappers
+config_value() {
+    yaml_get "${CONFIG_PREFIX}$1" "$2"
 }
+
+config_bool() {
+    yaml_bool "${CONFIG_PREFIX}$1" "$2"
+}
+
+# Validate config version
+check_config_version
 
 # Get stack
 STACK=$(config_value "stack" "")

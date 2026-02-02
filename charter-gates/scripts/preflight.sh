@@ -20,6 +20,33 @@
 REPO_PATH="${1:-.}"
 CHARTER="$REPO_PATH/charter/charter.yaml"
 RUBRIC="$REPO_PATH/charter/kill-rubric.yaml"
+GATES_CONFIG="$REPO_PATH/gates.yaml"
+
+# Read config value from gates.yaml (charter section)
+gates_config() {
+    local key=$1
+    local default=$2
+    [ ! -f "$GATES_CONFIG" ] && echo "$default" && return
+
+    # Simple extraction for charter.* keys
+    local section_found=0
+    local result=""
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^charter: ]]; then
+            section_found=1
+        elif [[ $section_found -eq 1 && "$line" =~ ^[a-z] ]]; then
+            section_found=0
+        elif [[ $section_found -eq 1 && "$line" =~ ^[[:space:]]+${key}: ]]; then
+            result=$(echo "$line" | sed "s/.*${key}: *//" | tr -d '"' | tr -d "'" | sed 's/#.*//' | sed 's/ *$//')
+            break
+        fi
+    done < "$GATES_CONFIG"
+
+    [ -n "$result" ] && echo "$result" || echo "$default"
+}
+
+# Configuration
+ENFORCE_REVIEWS=$(gates_config "enforce_reviews" "true")
 
 # Extract simple YAML value (handles quotes, strips comments)
 yaml_value() {
@@ -115,13 +142,20 @@ if [ -f "$RUBRIC" ]; then
         fi
     fi
 
-    # Check review date
+    # Check review date (if enforcement enabled)
     if [[ "$NEXT_REVIEW" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
         TODAY=$(date +%Y-%m-%d)
         if [[ "$TODAY" > "$NEXT_REVIEW" ]]; then
-            STATUS="BLOCKED"
-            BLOCK_REASON="Past review date ($NEXT_REVIEW). Complete review first."
             REVIEW_STATUS="overdue"
+            if [ "$ENFORCE_REVIEWS" = "true" ]; then
+                STATUS="BLOCKED"
+                BLOCK_REASON="Past review date ($NEXT_REVIEW). Complete review first."
+            else
+                if [ "$STATUS" = "CLEAR" ]; then
+                    STATUS="WARNING"
+                    WARNING_MSG="Review overdue ($NEXT_REVIEW). Consider scheduling review."
+                fi
+            fi
         else
             REVIEW_STATUS="current"
         fi
