@@ -6,7 +6,6 @@
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 ENGINEERING_GATES="$REPO_ROOT/../engineering-gates"
-CONFIG="$REPO_ROOT/engineering.yaml"
 
 if [ ! -d "$ENGINEERING_GATES" ]; then
     echo "Warning: engineering-gates not found at $ENGINEERING_GATES"
@@ -14,12 +13,24 @@ if [ ! -d "$ENGINEERING_GATES" ]; then
     exit 0
 fi
 
-# Get coverage threshold from config
+# Config resolution: .gates.local > gates.yaml > engineering.yaml
+CONFIG=""
+for f in "$REPO_ROOT/.gates.local" "$REPO_ROOT/gates.yaml" "$REPO_ROOT/engineering.yaml"; do
+    [ -f "$f" ] && CONFIG="$f" && break
+done
+
+# Get coverage threshold from config (handles both formats)
 COVERAGE_THRESHOLD=0
-if [ -f "$CONFIG" ]; then
-    THRESHOLD=$(grep "^coverage_threshold:" "$CONFIG" 2>/dev/null | sed 's/coverage_threshold: *//' | tr -d '"')
+if [ -n "$CONFIG" ]; then
+    # Try engineering.coverage_threshold first (gates.yaml format)
+    THRESHOLD=$(grep -A20 "^engineering:" "$CONFIG" 2>/dev/null | grep "coverage_threshold:" | head -1 | sed 's/.*coverage_threshold: *//' | tr -d '"')
+    # Fall back to top-level (engineering.yaml format)
+    [ -z "$THRESHOLD" ] && THRESHOLD=$(grep "^coverage_threshold:" "$CONFIG" 2>/dev/null | sed 's/coverage_threshold: *//' | tr -d '"')
     [ -n "$THRESHOLD" ] && COVERAGE_THRESHOLD=$THRESHOLD
 fi
+
+FAILURES=""
+WARNINGS=""
 
 echo "Running pre-push checks..."
 
@@ -28,39 +39,107 @@ OUTPUT=$("$ENGINEERING_GATES/scripts/check-tests.sh" "$REPO_ROOT" 2>&1)
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 1 ]; then
-    echo ""
-    echo "ENGINEERING BLOCK: Tests failed"
-    echo ""
-    echo "Fix failing tests before pushing."
-    echo ""
-    echo "Run '../engineering-gates/scripts/check-tests.sh .' for details."
-    exit 1
+    FAILURES="${FAILURES}tests "
 fi
 
-if [ $EXIT_CODE -eq 2 ]; then
-    echo "Tests skipped (not configured)."
-    exit 0
-fi
+if [ $EXIT_CODE -ne 2 ]; then
+    # Check coverage threshold (only if tests ran)
+    if [ "$COVERAGE_THRESHOLD" -gt 0 ]; then
+        COVERAGE=$(echo "$OUTPUT" | grep "^COVERAGE:" | sed 's/COVERAGE: *//' | tr -d '%')
 
-# Check coverage threshold
-if [ "$COVERAGE_THRESHOLD" -gt 0 ]; then
-    COVERAGE=$(echo "$OUTPUT" | grep "^COVERAGE:" | sed 's/COVERAGE: *//' | tr -d '%')
+        if [ -n "$COVERAGE" ]; then
+            COVERAGE_INT=${COVERAGE%.*}
 
-    if [ -n "$COVERAGE" ]; then
-        # Remove decimal for comparison
-        COVERAGE_INT=${COVERAGE%.*}
-
-        if [ "$COVERAGE_INT" -lt "$COVERAGE_THRESHOLD" ]; then
-            echo ""
-            echo "ENGINEERING BLOCK: Coverage below threshold"
-            echo ""
-            echo "Coverage: ${COVERAGE}%"
-            echo "Required: ${COVERAGE_THRESHOLD}%"
-            echo ""
-            echo "Add more tests before pushing."
-            exit 1
+            if [ "$COVERAGE_INT" -lt "$COVERAGE_THRESHOLD" ]; then
+                FAILURES="${FAILURES}coverage "
+            fi
         fi
     fi
+fi
+
+# Run custom checks for pre-push phase
+if [ -n "$CONFIG" ]; then
+    # Parse custom_checks from YAML
+    CUSTOM_CHECKS=$(awk '
+    BEGIN { name=""; cmd=""; phase=""; blocking="" }
+    /^engineering:/ { in_eng = 1; next }
+    /^[a-z]/ && !/^engineering:/ { in_eng = 0 }
+    /^  custom_checks:/ || /^custom_checks:/ { in_custom = 1; next }
+    in_custom && /^  [a-z]/ && !/^  -/ && !/^  custom_checks:/ { in_custom = 0 }
+    # When we see a new item, output the previous complete check first
+    in_custom && /^    - / && name != "" {
+        if (phase == "") phase = "pre-commit"
+        if (blocking == "") blocking = "true"
+        if (phase == "pre-push") print name "|" cmd "|" blocking
+        name = ""; cmd = ""; phase = ""; blocking = ""
+    }
+    in_custom && /^    - name:/ {
+        gsub(/.*- name: */, ""); gsub(/["'"'"']/, ""); name = $0; next
+    }
+    in_custom && /^      command:/ {
+        gsub(/.*command: */, ""); gsub(/^["'"'"']|["'"'"']$/, ""); cmd = $0; next
+    }
+    in_custom && /^      phase:/ {
+        gsub(/.*phase: */, ""); gsub(/["'"'"']/, ""); phase = $0; next
+    }
+    in_custom && /^      blocking:/ {
+        gsub(/.*blocking: */, ""); blocking = $0; next
+    }
+    END {
+        if (name != "" && cmd != "") {
+            if (phase == "") phase = "pre-commit"
+            if (blocking == "") blocking = "true"
+            if (phase == "pre-push") print name "|" cmd "|" blocking
+        }
+    }
+    ' "$CONFIG")
+
+    while IFS='|' read -r name cmd blocking; do
+        [ -z "$name" ] && continue
+        echo "  Custom check: $name"
+
+        cd "$REPO_ROOT"
+        CUSTOM_OUTPUT=$(eval "$cmd" 2>&1)
+        EXIT_CODE=$?
+
+        case $EXIT_CODE in
+            0) ;;  # Pass
+            1)
+                if [ "$blocking" = "true" ]; then
+                    FAILURES="${FAILURES}${name} "
+                else
+                    WARNINGS="${WARNINGS}${name} "
+                    echo "    Warning: $name failed (non-blocking)"
+                fi
+                ;;
+            2) echo "    Skipped: $name" ;;
+        esac
+    done <<< "$CUSTOM_CHECKS"
+fi
+
+# Report warnings
+if [ -n "$WARNINGS" ]; then
+    echo ""
+    echo "Warnings (non-blocking): $WARNINGS"
+fi
+
+if [ -n "$FAILURES" ]; then
+    echo ""
+    echo "ENGINEERING BLOCK: Pre-push checks failed"
+    echo ""
+    echo "Failed checks: $FAILURES"
+    echo ""
+
+    if [[ "$FAILURES" == *"tests"* ]]; then
+        echo "Fix failing tests before pushing."
+        echo "Run '../engineering-gates/scripts/check-tests.sh .' for details."
+    fi
+    if [[ "$FAILURES" == *"coverage"* ]]; then
+        echo "Coverage: ${COVERAGE}%"
+        echo "Required: ${COVERAGE_THRESHOLD}%"
+        echo "Add more tests before pushing."
+    fi
+    exit 1
 fi
 
 echo "Pre-push checks passed."

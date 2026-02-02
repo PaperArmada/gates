@@ -35,3 +35,16 @@ engineering:
   # Custom overrides (optional)
   # lint_config: .eslintrc.custom.js
   # test_command: npm run test:ci
+
+  # Custom checks (optional)
+  # Define project-specific checks to run alongside built-in gates
+  # custom_checks:
+  #   - name: security-audit
+  #     command: npm audit --audit-level=high
+  #     phase: pre-push          # pre-commit | pre-push
+  #     blocking: true           # true = fails gate, false = warning only
+  #
+  #   - name: bundle-size
+  #     command: ./scripts/check-bundle-size.sh
+  #     phase: pre-push
+  #     blocking: false

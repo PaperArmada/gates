@@ -63,6 +63,66 @@ gates_yaml:
           type: string
           description: "Custom test command (overrides auto-detection)"
 
+        custom_checks:
+          type: array
+          description: "Project-specific checks to run alongside built-in gates"
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                required: true
+                description: "Identifier for the check (used in output)"
+              command:
+                type: string
+                required: true
+                description: "Shell command to execute"
+              phase:
+                type: enum
+                values: [pre-commit, pre-push]
+                required: true
+                description: "When to run: pre-commit (fast) or pre-push (thorough)"
+              blocking:
+                type: boolean
+                default: true
+                description: "If true, failure blocks the operation. If false, warns only."
+
+custom_check_contract:
+  description: "Interface for custom check commands"
+
+  exit_codes:
+    0: "Check passed"
+    1: "Check failed"
+    2: "Check skipped (not applicable)"
+
+  output:
+    format: "Free-form text to stdout"
+    notes:
+      - "Output is displayed to user on failure"
+      - "Keep output concise and actionable"
+
+  examples:
+    simple_script: |
+      #!/bin/bash
+      # Example: check-bundle-size.sh
+      LIMIT=500  # KB
+
+      SIZE=$(du -sk dist/ | cut -f1)
+      if [ "$SIZE" -gt "$LIMIT" ]; then
+          echo "Bundle too large: ${SIZE}KB (limit: ${LIMIT}KB)"
+          exit 1
+      fi
+      echo "Bundle size OK: ${SIZE}KB"
+      exit 0
+
+    npm_command: "npm audit --audit-level=high"
+
+  best_practices:
+    - "Exit quickly on success (0)"
+    - "Provide actionable error messages on failure (1)"
+    - "Use exit 2 to skip gracefully when check doesn't apply"
+    - "Avoid interactive prompts"
+
   stability:
     - "Version field is required and frozen"
     - "New fields are always optional with sensible defaults"

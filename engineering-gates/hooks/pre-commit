@@ -13,8 +13,15 @@ if [ ! -d "$ENGINEERING_GATES" ]; then
     exit 0
 fi
 
+# Config resolution: .gates.local > gates.yaml > engineering.yaml
+CONFIG=""
+for f in "$REPO_ROOT/.gates.local" "$REPO_ROOT/gates.yaml" "$REPO_ROOT/engineering.yaml"; do
+    [ -f "$f" ] && CONFIG="$f" && break
+done
+
 # Run individual checks (not full preflight - skip tests for commits)
 FAILURES=""
+WARNINGS=""
 
 echo "Running pre-commit checks..."
 
@@ -35,6 +42,71 @@ esac
 case $? in
     1) FAILURES="${FAILURES}format " ;;
 esac
+
+# Run custom checks for pre-commit phase
+if [ -n "$CONFIG" ]; then
+    # Parse custom_checks from YAML (handles both gates.yaml and engineering.yaml formats)
+    CUSTOM_CHECKS=$(awk '
+    BEGIN { name=""; cmd=""; phase=""; blocking="" }
+    /^engineering:/ { in_eng = 1; next }
+    /^[a-z]/ && !/^engineering:/ { in_eng = 0 }
+    /^  custom_checks:/ || /^custom_checks:/ { in_custom = 1; next }
+    in_custom && /^  [a-z]/ && !/^  -/ && !/^  custom_checks:/ { in_custom = 0 }
+    # When we see a new item, output the previous complete check first
+    in_custom && /^    - / && name != "" {
+        if (phase == "") phase = "pre-commit"
+        if (blocking == "") blocking = "true"
+        if (phase == "pre-commit") print name "|" cmd "|" blocking
+        name = ""; cmd = ""; phase = ""; blocking = ""
+    }
+    in_custom && /^    - name:/ {
+        gsub(/.*- name: */, ""); gsub(/["'"'"']/, ""); name = $0; next
+    }
+    in_custom && /^      command:/ {
+        gsub(/.*command: */, ""); gsub(/^["'"'"']|["'"'"']$/, ""); cmd = $0; next
+    }
+    in_custom && /^      phase:/ {
+        gsub(/.*phase: */, ""); gsub(/["'"'"']/, ""); phase = $0; next
+    }
+    in_custom && /^      blocking:/ {
+        gsub(/.*blocking: */, ""); blocking = $0; next
+    }
+    END {
+        if (name != "" && cmd != "") {
+            if (phase == "") phase = "pre-commit"
+            if (blocking == "") blocking = "true"
+            if (phase == "pre-commit") print name "|" cmd "|" blocking
+        }
+    }
+    ' "$CONFIG")
+
+    while IFS='|' read -r name cmd blocking; do
+        [ -z "$name" ] && continue
+        echo "  Custom check: $name"
+
+        cd "$REPO_ROOT"
+        eval "$cmd" > /dev/null 2>&1
+        EXIT_CODE=$?
+
+        case $EXIT_CODE in
+            0) ;;  # Pass
+            1)
+                if [ "$blocking" = "true" ]; then
+                    FAILURES="${FAILURES}${name} "
+                else
+                    WARNINGS="${WARNINGS}${name} "
+                fi
+                ;;
+            2) ;;  # Skip
+        esac
+    done <<< "$CUSTOM_CHECKS"
+fi
+
+# Report warnings
+if [ -n "$WARNINGS" ]; then
+    echo ""
+    echo "Warnings (non-blocking): $WARNINGS"
+fi
 
 if [ -n "$FAILURES" ]; then
     echo ""
